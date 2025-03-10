@@ -1,9 +1,12 @@
 use super::bean::arbitragecombine::ArbitrageCombine;
+use super::bookticker::BookTicker;
 use log::{error, info};
 use sqlx::MySqlPool;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::{Duration, Instant};
+use tokio::runtime::Runtime;
 use tokio::sync::broadcast::{self, Receiver};
 use tokio::time::{self, interval, sleep};
 
@@ -64,14 +67,31 @@ pub async fn run(pool: &'static MySqlPool) -> Result<(), sqlx::Error> {
     use super::fee::maintain_commission_fees;
     use super::symbol_filtes::maintain_symbol_filters;
 
-    let handle_1 = tokio::spawn(maintain_commission_fees(rx1));
-    let handle_2 = tokio::spawn(maintain_symbol_filters(rx2, pool));
-    let handle_3 = tokio::spawn(maintain_account_asset_balance(rx3));
+    let handle_1 = thread::spawn(move || {
+        Runtime::new()
+            .unwrap()
+            .block_on(maintain_commission_fees(rx1))
+    });
+    let handle_2 = thread::spawn(move || {
+        Runtime::new()
+            .unwrap()
+            .block_on(maintain_symbol_filters(rx2, pool))
+    });
+    let handle_3 = thread::spawn(move || {
+        Runtime::new()
+            .unwrap()
+            .block_on(maintain_account_asset_balance(rx3))
+    });
 
-    let handle_4 = tokio::spawn(listen_and_maintain_book_tickers(symbol_names, rx4));
-
-    let _ = tokio::try_join!(handle_1, handle_2, handle_3, handle_4);
-
+    let handle_4 = thread::spawn(move || {
+        Runtime::new()
+            .unwrap()
+            .block_on(listen_and_maintain_book_tickers(symbol_names, rx4))
+    });
+    let _r  = handle_1.join().unwrap();
+    handle_2.join().unwrap();
+    handle_3.join().unwrap();
+    handle_4.join().unwrap();
     let _ = tx.send(());
 
     Ok(())
@@ -80,7 +100,6 @@ pub async fn run(pool: &'static MySqlPool) -> Result<(), sqlx::Error> {
 async fn watch_free() {}
 
 // async fn trigger_arbitrage_analysis_and_order(
-//     ctx: &(),
 //     trigger_symbol: String,
 //     trigger_book_ticker: BookTicker,
 //     map_symbol_combines: CombineMap,

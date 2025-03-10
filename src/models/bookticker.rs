@@ -11,6 +11,15 @@ use env_logger::Builder;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::Receiver;
+use lazy_static::lazy_static;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::RwLock;
+
+lazy_static! {
+    pub static ref BOOK_TICKERS_MAP: Arc<RwLock<HashMap<String, BookTicker>>> =
+        Arc::new(RwLock::new(HashMap::new()));
+}
 
 const BINANCE_WSS_BASE_URL: &str = "wss://testnet.binance.vision/ws";
 
@@ -18,16 +27,14 @@ pub async fn listen_and_maintain_book_tickers(symbol_names: Vec<String>, mut rx:
     Builder::from_default_env()
         .filter(None, log::LevelFilter::Debug)
         .init();
-    // Establish connection
+   
     let (mut conn, _) = BinanceWebSocketClient::connect_async(BINANCE_WSS_BASE_URL)
         .await
         .expect("Failed to connect");
-    // Read messages
+   
     let mut vec_book_tickers = vec![];
     for symbol_name in &symbol_names {
         vec_book_tickers.push(BookTickerStream::from_symbol(symbol_name).into());
-        // conn.subscribe(vec![&BookTickerStream::from_symbol(&symbol_name).into()])
-        //     .await;
     }
     conn.subscribe(vec_book_tickers.iter()).await;
         loop {
@@ -41,6 +48,12 @@ pub async fn listen_and_maintain_book_tickers(symbol_names: Vec<String>, mut rx:
                                 match serde_json::from_str::<BookTicker>(&string_data){
                                     Ok(book_ticker) => {
                                         log::info!("{:?}", book_ticker);
+                                        // if let Some(old_book_ticker) = FEE_MAP.read().unwrap().get(book_ticker.symbol.as_str()) {
+                                        //         if book_ticker.update > old_book_ticker.update {
+                                            BOOK_TICKERS_MAP.write().unwrap().insert(book_ticker.symbol.clone(), book_ticker);
+                                                // }
+                                        // }
+
                                     }
                                     Err(e) => {
                                         log::error!("Failed to parse book ticker: {}", e);
